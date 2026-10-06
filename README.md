@@ -90,4 +90,8 @@ The first time Claude Code loads the mod it writes its API types to `.claude-plu
 
 `hooks/core.ts` holds the logic, `hooks/register.tsx` wires it to Claude Code events and draws the pane, and `hooks/brand.ts` holds the BlueCheck colors and mark.
 
+## License
+
+MIT. See [LICENSE](LICENSE).
+
 <p><img src="assets/footer.svg" alt="Prepared by BlueCheck Technology" width="900"></p>
