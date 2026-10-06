@@ -9,9 +9,11 @@ const START = 50_000_000
 const PEER_TOKEN = 'peer0123456789abcdef0123'
 
 /** A disk, a git that knows nothing, and a peer session's file already in the folder. */
-function world(on: On) {
+function world(on: On, options: { openFails?: string } = {}) {
+  const toasts: string[] = []
   const files = new Map<string, { text: string; mtimeMs: number }>()
   const sent: { to: string; text: string }[] = []
+  const opened: string[] = []
   const aborted: string[] = []
   const clock = mock.clock(on, { now: START })
   mock.env(on, { HOME })
@@ -55,9 +57,18 @@ function world(on: On) {
   on('session.receive', ($, e) => ({ text: e.text }))
   on('command.register', () => ({ value: { isRegistered: true } }) as never)
   on('command.run', () => ({ text: '' }))
-  on('ui.open', () => ({ value: { isPlaced: true as const } }))
+  on('ui.open', ($, e) => {
+    opened.push(e.id)
+    if (options.openFails) return { value: { isPlaced: false as const, reason: options.openFails } } as never
+
+    return { value: { isPlaced: true as const } }
+  })
   on('ui.status', () => ({ value: undefined }))
-  on('ui.toast', () => ({ value: undefined }))
+  on('ui.toast', ($, e) => {
+    toasts.push(typeof e === 'string' ? e : JSON.stringify(e))
+
+    return { value: undefined }
+  })
   on('turn.abort', ($, e) => {
     aborted.push(e.turnId)
 
@@ -83,7 +94,7 @@ function world(on: On) {
 
   const own = () => JSON.parse(files.get(`${DIR}/me-0001.json`)?.text ?? 'null') as SessionRecord | null
 
-  return { files, sent, aborted, clock, own }
+  return { files, sent, opened, aborted, clock, own, toasts }
 }
 
 const PANE = (bodyColumns: number) =>
@@ -139,6 +150,45 @@ describe('mission control', () => {
     expect(await ui.find({ type: 'Text', text: '● running' })).toBeDefined()
     expect(await ui.find({ key: 'stop-peer-0002' })).toBeDefined()
     expect(await ui.find({ type: 'Text', text: 'Prepared by BlueCheck Technology' })).toBeDefined()
+  })
+
+  test('the row above the prompt shows the counts and its button opens the dashboard', async ($, on) => {
+    const w = world(on)
+    await $.session.start({ cwd: '/work/App', surface: 'terminal', isInteractive: true })
+
+    for (const surface of ['terminal', 'desktop'] as const) {
+      const ui = await $.ui.mount({
+        plugin: 'mission-control',
+        surface,
+        component: 'AbovePrompt',
+        props: { hasSurvey: false, isWorking: false, maxRows: 6, bodyColumns: 120, scroll: { offset: 0, bodyRows: 6 }, view: {} },
+      })
+      expect(await ui.find({ type: 'Text', text: 'Mission Control' })).toBeDefined()
+      expect(await ui.find({ type: 'Text', text: /1 running/ })).toBeDefined()
+      await ui.press({ key: 'open' })
+      await ui.unmount()
+    }
+    expect(w.opened).toEqual(['mission-control', 'mission-control'])
+  })
+
+  test('the button opens the full list, even after a /mc search', async ($, on) => {
+    world(on)
+    await $.session.start({ cwd: '/work/App', surface: 'terminal', isInteractive: true })
+    await $.command.run({ command: 'mc', args: 'breev', origin: { kind: 'composer' }, presentation: { isFullscreen: true, columns: 160 } } as never)
+    const row = await $.ui.mount({ plugin: 'mission-control', surface: 'terminal', component: 'AbovePrompt', props: { hasSurvey: false, isWorking: false, maxRows: 6, bodyColumns: 120, scroll: { offset: 0, bodyRows: 6 }, view: {} } })
+    await row.press({ key: 'open' })
+    await row.unmount()
+    const ui = await $.ui.mount({ ...PANE(100), surface: 'terminal' })
+    expect(await ui.find({ type: 'Text', text: 'Breev' })).toBeDefined()
+    expect(await ui.find({ type: 'Text', text: /^App$/ })).toBeDefined()
+  })
+
+  test('the button says why when the dashboard cannot open', async ($, on) => {
+    const w = world(on, { openFails: 'no room for a dock' })
+    await $.session.start({ cwd: '/work/App', surface: 'terminal', isInteractive: true })
+    const row = await $.ui.mount({ plugin: 'mission-control', surface: 'terminal', component: 'AbovePrompt', props: { hasSurvey: false, isWorking: false, maxRows: 6, bodyColumns: 120, scroll: { offset: 0, bodyRows: 6 }, view: {} } })
+    await row.press({ key: 'open' })
+    expect(w.toasts.some(text => text.includes('no room for a dock'))).toBe(true)
   })
 
   test('Stop on another session sends it that session\'s token', async ($, on) => {

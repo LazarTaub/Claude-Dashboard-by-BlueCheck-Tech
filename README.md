@@ -26,7 +26,11 @@ Project names and branches come from `git`. The PR column needs the GitHub CLI (
 
 ## Use
 
-- `/mc` opens the dashboard. `/mc breev` opens it with a search already typed.
+A Mission Control row sits just above the prompt with the live counts. Click **Open Mission Control** to open the dashboard, or press ctrl+x, then Tab, then Enter. Fold the row away with its `[-]`.
+
+![The Mission Control row above the prompt, and the dashboard it opened](assets/button.png)
+
+- `/mc` also opens the dashboard. `/mc breev` opens it with a search already typed.
 - The search box filters by project, branch, prompt, PR number or status.
 - Tab moves between buttons and Enter presses one.
 - Stop ends that session's current turn.
@@ -74,7 +78,7 @@ Two live Claude Code sessions, A and B, in one terminal:
 | --- | --- |
 | ![B running a long command](assets/B-running.png) | ![B idle after Stop](assets/B-after-stop.png) |
 
-`claude plugin test .` runs 19 tests: the status, grouping, search and PR parsing, plus the pane drawn on the terminal and the desktop app at full and narrow widths, the Stop message and its token check.
+`claude plugin test .` runs 20 tests: the status, grouping, search and PR parsing, plus the pane drawn on the terminal and the desktop app at full and narrow widths, the row above the prompt and its button, the Stop message and its token check.
 
 ## Develop
 
