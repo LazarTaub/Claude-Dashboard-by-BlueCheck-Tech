@@ -77,6 +77,21 @@ export function matches(record: SessionRecord, query: string, now: number): bool
 
 export type Group = { project: string; rows: SessionRecord[] }
 
+/** The group a project shows under: the desktop app's scratch folders share one. */
+export const SCRATCH_GROUP = 'Quick sessions'
+
+export function groupName(project: string): string {
+  return /^scratch-\d{4}-\d{2}-\d{2}-[0-9a-f]+$/i.test(project) ? SCRATCH_GROUP : project
+}
+
+/**
+ * A prompt as the person wrote it: the engine's own notes, such as a
+ * <system-reminder> block, are dropped, even one cut off by an earlier clip.
+ */
+export function cleanPrompt(text: string): string {
+  return clip(text.replace(/<(system-reminder|command-[a-z-]+)>[\s\S]*?(<\/\1>|$)/g, ' '), 140)
+}
+
 /**
  * Groups kept sessions by project. Projects with a session waiting on you
  * come first, then running ones, then the most recently active.
@@ -87,9 +102,10 @@ export function group(records: readonly SessionRecord[], query: string, now: num
 
   for (const record of records) {
     if (!isKept(record, now) || !matches(record, query, now)) continue
-    const rows = byProject.get(record.project) ?? []
+    const name = groupName(record.project)
+    const rows = byProject.get(name) ?? []
     rows.push(record)
-    byProject.set(record.project, rows)
+    byProject.set(name, rows)
   }
 
   const groups = [...byProject].map(([project, rows]) => ({

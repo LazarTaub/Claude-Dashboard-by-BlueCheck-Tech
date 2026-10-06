@@ -26,8 +26,11 @@ import {
   ago,
   basename,
   clip,
+  cleanPrompt,
   count,
   group,
+  groupName,
+  SCRATCH_GROUP,
   isKept,
   newToken,
   parseRecord,
@@ -470,11 +473,15 @@ export const register: Register = on => {
     const me = await read($, self)
     const now = (await read($, tick)) || (await $.clock.now())
     const width = Math.max(20, e.props.bodyColumns)
+    // Each project sits in a framed card: a border and a column of padding a side.
+    const inner = width - 4
     // Below this the buttons get lines of their own.
-    const isNarrow = width < 64
+    const isNarrow = inner < 60
     // The credit line and the date need about 72 columns side by side.
     const isFooterStacked = width < 76
     const isTerminal = e.surface === 'terminal'
+    // The status column fits the longest label, "● WAITING ON YOU", and a space.
+    const LABEL_COLUMNS = Math.max(...Object.values(LABEL).map(label => label.length)) + 3
     const groups = group(all, query, now)
     const counts = count(all, now)
     const surface = e.surface
@@ -484,38 +491,62 @@ export const register: Register = on => {
       !isTerminal && 'Svg' in ui ? <ui.Svg source={source} alt="BlueCheck Technology" width={across} height={down} /> : null
 
     const header = (
-      <Box flexDirection="column">
-        <Box
-          backgroundColor={NAVY}
-          paddingX={1}
-          flexDirection={width < 44 ? 'column' : 'row'}
-          justifyContent="space-between"
-          alignItems={width < 44 ? 'flex-start' : 'center'}
-        >
-          <Box flexDirection="row" alignItems="center" gap={1}>
-            {mark(MARK_WHITE, 20, 25) ?? (
-              <Text color="#FFFFFF" backgroundColor={NAVY} bold>
-                ✓
-              </Text>
-            )}
-            <Box flexDirection={isTerminal ? 'row' : 'column'} gap={isTerminal ? 1 : 0}>
-              <Text color="#FFFFFF" backgroundColor={NAVY} bold>
-                BlueCheck
-              </Text>
-              <Text color={SKY} backgroundColor={NAVY}>
-                TECHNOLOGY
-              </Text>
-            </Box>
+      <Box
+        backgroundColor={NAVY}
+        paddingX={2}
+        paddingY={isTerminal ? 0 : 1}
+        flexDirection={width < 44 ? 'column' : 'row'}
+        justifyContent="space-between"
+        alignItems={width < 44 ? 'flex-start' : 'center'}
+      >
+        <Box flexDirection="row" alignItems="center" gap={1}>
+          {mark(MARK_WHITE, 22, 27) ?? (
+            <Text color="#FFFFFF" backgroundColor={NAVY} bold>
+              ✓
+            </Text>
+          )}
+          <Box flexDirection={isTerminal ? 'row' : 'column'} gap={isTerminal ? 1 : 0}>
+            <Text color="#FFFFFF" backgroundColor={NAVY} bold>
+              BlueCheck
+            </Text>
+            <Text color={SKY} backgroundColor={NAVY}>
+              TECHNOLOGY
+            </Text>
           </Box>
-          <Text color={SKY} backgroundColor={NAVY}>
-            MISSION CONTROL
-          </Text>
         </Box>
-        <Text color={ROYAL}>{'━'.repeat(width)}</Text>
+        <Text color={SKY} backgroundColor={NAVY}>
+          MISSION CONTROL
+        </Text>
       </Box>
     )
 
-    const summary = (['waiting', 'running', 'idle', 'lost'] as const).filter(shown => counts[shown] > 0)
+    // A ledger of the four states: the figure in its color, the name in capitals.
+    const ledger = (
+      <Box flexDirection="row" flexWrap="wrap" columnGap={3}>
+        {(['waiting', 'running', 'idle', 'lost'] as const).map(shown => (
+          <Box key={`count-${shown}`} flexDirection="row" gap={1}>
+            <Text bold color={counts[shown] > 0 ? COLOR[shown] : 'inactive'}>
+              {String(counts[shown])}
+            </Text>
+            <Text dimColor>{LABEL[shown].toUpperCase()}</Text>
+          </Box>
+        ))}
+      </Box>
+    )
+
+    const title = (
+      <Box flexDirection="column" gap={isTerminal ? 0 : 1}>
+        <Box flexDirection={isFooterStacked ? 'column' : 'row'} justifyContent="space-between">
+          <Text bold color={ROYAL}>
+            Sessions on this computer
+          </Text>
+          <Text dimColor italic wrap="truncate-end">
+            {stamp(now)}
+          </Text>
+        </Box>
+        {ledger}
+      </Box>
+    )
 
     const search =
       'Input' in ui ? (
@@ -533,15 +564,15 @@ export const register: Register = on => {
       const shown = shownStatus(record, now)
       const isMe = record.id === me?.id
       const canStop = shown === 'running' || shown === 'waiting'
-      const where = record.branch ?? basename(record.root)
+      const isScratch = groupName(record.project) === SCRATCH_GROUP
+      const where = isScratch ? '' : `${record.branch ?? basename(record.root)} · `
+      const prompt = record.prompt ? cleanPrompt(record.prompt) : ''
       const detail =
-        shown === 'running' || shown === 'waiting'
-          ? (record.activity ?? record.prompt ?? '')
-          : (record.prompt ?? record.activity ?? '')
+        shown === 'running' || shown === 'waiting' ? (record.activity ?? prompt) : prompt || (record.activity ?? '')
 
       const buttons =
         canStop || !isMe ? (
-          <Box flexDirection="row" gap={1} flexShrink={0} paddingLeft={isNarrow ? 3 : 0}>
+          <Box flexDirection="row" gap={1} flexShrink={0} paddingLeft={isNarrow ? 2 : 0}>
             {canStop && <Button key={`stop-${record.id}`} label="Stop" onPress={() => void stop($, record.id)} />}
             {!isMe && (
               <Button key={`resume-${record.id}`} label="Resume" onPress={() => void resume($, record, surface)} />
@@ -551,29 +582,38 @@ export const register: Register = on => {
 
       return (
         <Box key={`row-${record.id}`} flexDirection="column">
-          <Box flexDirection="row">
+          <Box flexDirection="row" alignItems="center">
             {/* The label never wraps; the branch and age give way first. */}
-            <Box flexShrink={0}>
+            <Box flexShrink={0} width={LABEL_COLUMNS}>
               <Text bold color={COLOR[shown]}>
-                {`● ${LABEL[shown]}`}
+                {`● ${LABEL[shown].toUpperCase()}`}
               </Text>
             </Box>
-            <Box flexGrow={1} flexShrink={1}>
+            <Box flexGrow={1} flexShrink={1} flexDirection="row">
               <Text dimColor wrap="truncate-end">
-                {` · ${where} · ${ago(now - record.since)}${isMe ? ' · this session' : ''}`}
+                {`${where}${ago(now - record.since)} ago`}
               </Text>
+              {isMe && (
+                <Text italic color={ROYAL}>
+                  {'  this session'}
+                </Text>
+              )}
             </Box>
             {!isNarrow && buttons}
           </Box>
           {detail !== '' && (
-            <Text dimColor wrap="truncate-end">
-              {`   ${detail}`}
-            </Text>
+            <Box paddingLeft={2}>
+              <Text italic={shown === 'ended'} dimColor={shown === 'ended'} wrap="truncate-end">
+                {detail}
+              </Text>
+            </Box>
           )}
           {record.pr && (
-            <Text color={CI_COLOR[record.pr.ci]} wrap="truncate-end">
-              {`   ${prLine(record.pr)}`}
-            </Text>
+            <Box paddingLeft={2}>
+              <Text color={CI_COLOR[record.pr.ci]} wrap="truncate-end">
+                {prLine(record.pr)}
+              </Text>
+            </Box>
           )}
           {isNarrow && buttons}
         </Box>
@@ -582,7 +622,9 @@ export const register: Register = on => {
 
     const body =
       groups.length === 0 ? (
-        <Text dimColor>{query ? `No session matches "${query}".` : 'No sessions yet.'}</Text>
+        <Text dimColor italic>
+          {query ? `No session matches "${query}".` : 'No sessions yet.'}
+        </Text>
       ) : (
         <Box flexDirection="column" gap={1}>
           {groups.map(({ project, rows }) => {
@@ -590,15 +632,26 @@ export const register: Register = on => {
             const hidden = rows.length - shownRows.length
 
             return (
-              <Box key={`project-${project}`} flexDirection="column">
-                <Box flexDirection="row">
-                  <Text bold color={ROYAL}>
+              <Box
+                key={`project-${project}`}
+                flexDirection="column"
+                borderStyle="single"
+                borderColor="subtle"
+                paddingX={1}
+                gap={isTerminal ? 0 : 1}
+              >
+                <Box flexDirection="row" justifyContent="space-between">
+                  <Text bold color={ROYAL} wrap="truncate-end">
                     {project}
                   </Text>
-                  <Text dimColor>{`  ${rows.length} session${rows.length === 1 ? '' : 's'}`}</Text>
+                  <Text dimColor>{`${rows.length} SESSION${rows.length === 1 ? '' : 'S'}`}</Text>
                 </Box>
                 {shownRows.map(row)}
-                {hidden > 0 && <Text dimColor>{`   ${hidden} more. Search to see them.`}</Text>}
+                {hidden > 0 && (
+                  <Text dimColor italic>
+                    {`${hidden} more. Search to see them.`}
+                  </Text>
+                )}
               </Box>
             )
           })}
@@ -606,37 +659,32 @@ export const register: Register = on => {
       )
 
     const footer = (
-      <Box flexDirection="column">
-        <Text dimColor>{'─'.repeat(width)}</Text>
-        <Box flexDirection={isFooterStacked ? 'column' : 'row'} justifyContent="space-between">
-          <Box flexDirection="row" gap={1} alignItems="center">
-            {mark(MARK, 18, 22)}
-            <Text dimColor wrap="truncate-end">
-              Prepared by BlueCheck Technology
-            </Text>
-          </Box>
-          <Text dimColor wrap="truncate-end">{`${stamp(now)} · this computer`}</Text>
+      <Box
+        flexDirection={isFooterStacked ? 'column' : 'row'}
+        justifyContent="space-between"
+        alignItems={isFooterStacked ? 'flex-start' : 'center'}
+      >
+        <Box flexDirection="row" gap={1} alignItems="center">
+          {mark(MARK, 16, 20)}
+          <Text dimColor wrap="truncate-end">
+            Prepared by BlueCheck Technology
+          </Text>
         </Box>
+        <Text dimColor wrap="truncate-end">
+          Mission Control · this computer
+        </Text>
       </Box>
     )
 
     return (
       <Box flexDirection="column" gap={1}>
         {header}
-        <Box flexDirection="row" flexWrap="wrap">
-          {summary.length === 0 ? (
-            <Text dimColor>No sessions running.</Text>
-          ) : (
-            summary.map((shown, index) => (
-              <Text key={`count-${shown}`} color={COLOR[shown]}>
-                {`${index === 0 ? '' : '  ·  '}${counts[shown]} ${LABEL[shown]}`}
-              </Text>
-            ))
-          )}
+        <Box flexDirection="column" gap={1} paddingX={1}>
+          {title}
+          {search}
+          {body}
+          {footer}
         </Box>
-        {search}
-        {body}
-        {footer}
       </Box>
     )
   })

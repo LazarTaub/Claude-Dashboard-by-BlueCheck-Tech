@@ -2,8 +2,10 @@ import { describe, expect, test } from 'claude-code/testing'
 
 import type { SessionRecord } from '../types'
 import {
+  SCRATCH_GROUP,
   STALE_MS,
   activityFor,
+  cleanPrompt,
   ciFrom,
   group,
   matches,
@@ -81,6 +83,27 @@ describe('grouping and search', () => {
     expect(matches(r, 'volkn login', NOW)).toBe(true)
     expect(matches(r, 'waiting', NOW)).toBe(true)
     expect(matches(r, 'volkn checkout', NOW)).toBe(false)
+  })
+})
+
+describe('display', () => {
+  test('the desktop app\'s scratch folders share one group', () => {
+    const groups = group(
+      [
+        record({ id: 'a', project: 'scratch-2026-10-06-4951d0' }),
+        record({ id: 'b', project: 'scratch-2026-10-06-a4355f' }),
+        record({ id: 'c', project: 'Breev' }),
+      ],
+      '',
+      NOW,
+    )
+    expect(groups.map(g => g.project).sort()).toEqual(['Breev', SCRATCH_GROUP])
+  })
+
+  test('a prompt drops the engine\'s own notes, closed or cut off', () => {
+    expect(cleanPrompt('<system-reminder>scratch folder</system-reminder> Fix the login page')).toBe('Fix the login page')
+    expect(cleanPrompt('Ship it <system-reminder> The user started this session without choosing')).toBe('Ship it')
+    expect(cleanPrompt('Plain words stay')).toBe('Plain words stay')
   })
 })
 
