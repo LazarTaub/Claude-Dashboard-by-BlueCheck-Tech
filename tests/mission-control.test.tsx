@@ -12,6 +12,7 @@ const PEER_TOKEN = 'peer0123456789abcdef0123'
 function world(on: On) {
   const files = new Map<string, { text: string; mtimeMs: number }>()
   const sent: { to: string; text: string }[] = []
+  const opened: string[] = []
   const aborted: string[] = []
   const clock = mock.clock(on, { now: START })
   mock.env(on, { HOME })
@@ -55,7 +56,11 @@ function world(on: On) {
   on('session.receive', ($, e) => ({ text: e.text }))
   on('command.register', () => ({ value: { isRegistered: true } }) as never)
   on('command.run', () => ({ text: '' }))
-  on('ui.open', () => ({ value: { isPlaced: true as const } }))
+  on('ui.open', ($, e) => {
+    opened.push(e.id)
+
+    return { value: { isPlaced: true as const } }
+  })
   on('ui.status', () => ({ value: undefined }))
   on('ui.toast', () => ({ value: undefined }))
   on('turn.abort', ($, e) => {
@@ -83,7 +88,7 @@ function world(on: On) {
 
   const own = () => JSON.parse(files.get(`${DIR}/me-0001.json`)?.text ?? 'null') as SessionRecord | null
 
-  return { files, sent, aborted, clock, own }
+  return { files, sent, opened, aborted, clock, own }
 }
 
 const PANE = (bodyColumns: number) =>
@@ -139,6 +144,25 @@ describe('mission control', () => {
     expect(await ui.find({ type: 'Text', text: '● running' })).toBeDefined()
     expect(await ui.find({ key: 'stop-peer-0002' })).toBeDefined()
     expect(await ui.find({ type: 'Text', text: 'Prepared by BlueCheck Technology' })).toBeDefined()
+  })
+
+  test('the row above the prompt shows the counts and its button opens the dashboard', async ($, on) => {
+    const w = world(on)
+    await $.session.start({ cwd: '/work/App', surface: 'terminal', isInteractive: true })
+
+    for (const surface of ['terminal', 'desktop'] as const) {
+      const ui = await $.ui.mount({
+        plugin: 'mission-control',
+        surface,
+        component: 'AbovePrompt',
+        props: { hasSurvey: false, isWorking: false, maxRows: 6, bodyColumns: 120, scroll: { offset: 0, bodyRows: 6 }, view: {} },
+      })
+      expect(await ui.find({ type: 'Text', text: 'Mission Control' })).toBeDefined()
+      expect(await ui.find({ type: 'Text', text: /1 running/ })).toBeDefined()
+      await ui.press({ key: 'open' })
+      await ui.unmount()
+    }
+    expect(w.opened).toEqual(['mission-control', 'mission-control'])
   })
 
   test('Stop on another session sends it that session\'s token', async ($, on) => {

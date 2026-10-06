@@ -265,6 +265,10 @@ async function stop($: Dollar, id: string): Promise<void> {
   )
 }
 
+function openPane($: Dollar) {
+  return $.ui.open({ id: PANE, title: 'Mission Control', focus: true })
+}
+
 async function resume($: Dollar, record: SessionRecord, surface: RenderSurface): Promise<void> {
   const copied = await $.ui.copy({ text: resumeCommand(record), surface })
   $.ui.toast(
@@ -302,7 +306,7 @@ export const register: Register = on => {
   on('command.run', { command: 'mc' }, async ($, e) => {
     await update($, filter, () => e.args.trim())
     await scan($)
-    const opened = await $.ui.open({ id: PANE, title: 'Mission Control', focus: true })
+    const opened = await openPane($)
 
     return { text: opened.isPlaced ? 'Mission Control is open.' : `Mission Control did not open: ${opened.reason}` }
   })
@@ -394,6 +398,58 @@ export const register: Register = on => {
     return next(e)
   })
 
+  // The row above the prompt: the counts and a button that opens the pane,
+  // so the dashboard is one click away without typing /mc. It steps aside
+  // for a survey, and the person can fold it with the engine's [-].
+  on('ui.render', { component: 'AbovePrompt' }, async ($, e, next) => {
+    if (e.props.hasSurvey) return next(e)
+
+    const ui = $.ui.resolve(e)
+    const { Box, Text, Button } = ui
+    const all = await read($, sessions)
+    const now = (await read($, tick)) || (await $.clock.now())
+    const counts = count(all, now)
+    const shown = (['waiting', 'running', 'idle', 'lost'] as const).filter(state => counts[state] > 0)
+    const isNarrow = e.props.bodyColumns < 70
+    const mark =
+      e.surface !== 'terminal' && 'Svg' in ui ? (
+        <ui.Svg source={MARK_WHITE} alt="BlueCheck Technology" width={14} height={17} />
+      ) : (
+        <Text color="#FFFFFF" backgroundColor={NAVY} bold>
+          ✓
+        </Text>
+      )
+
+    return (
+      <Box flexDirection="row" alignItems="center" gap={1}>
+        <Box backgroundColor={NAVY} paddingX={1} flexDirection="row" alignItems="center" gap={1} flexShrink={0}>
+          {mark}
+          <Text color="#FFFFFF" backgroundColor={NAVY} bold>
+            {isNarrow ? 'MC' : 'Mission Control'}
+          </Text>
+        </Box>
+        <Box flexDirection="row" flexShrink={1}>
+          {shown.length === 0 ? (
+            <Text dimColor>no sessions</Text>
+          ) : (
+            shown.map((state, index) => (
+              <Text key={`band-${state}`} color={COLOR[state]} wrap="truncate-end">
+                {`${index === 0 ? '' : ' · '}${counts[state]} ${isNarrow ? state : LABEL[state]}`}
+              </Text>
+            ))
+          )}
+        </Box>
+        <Button
+          key="open"
+          label={isNarrow ? 'Open' : 'Open Mission Control'}
+          hotkey="m"
+          variant="primary"
+          onPress={() => void openPane($)}
+        />
+      </Box>
+    )
+  })
+
   on('ui.render', { component: 'Pane', requestId: PANE }, async ($, e) => {
     const ui = $.ui.resolve(e)
     const { Box, Text, Button } = ui
@@ -404,6 +460,8 @@ export const register: Register = on => {
     const width = Math.max(20, e.props.bodyColumns)
     // Below this the buttons and the footer's date get lines of their own.
     const isNarrow = width < 64
+    // The credit line and the date need about 72 columns side by side.
+    const isFooterStacked = width < 76
     const isTerminal = e.surface === 'terminal'
     const groups = group(all, query, now)
     const counts = count(all, now)
@@ -538,7 +596,7 @@ export const register: Register = on => {
     const footer = (
       <Box flexDirection="column">
         <Text dimColor>{'─'.repeat(width)}</Text>
-        <Box flexDirection={isNarrow ? 'column' : 'row'} justifyContent="space-between">
+        <Box flexDirection={isFooterStacked ? 'column' : 'row'} justifyContent="space-between">
           <Box flexDirection="row" gap={1} alignItems="center">
             {mark(MARK, 18, 22)}
             <Text dimColor wrap="truncate-end">
