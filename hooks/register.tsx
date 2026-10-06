@@ -402,6 +402,8 @@ export const register: Register = on => {
     const me = await read($, self)
     const now = (await read($, tick)) || (await $.clock.now())
     const width = Math.max(20, e.props.bodyColumns)
+    // Below this the buttons and the footer's date get lines of their own.
+    const isNarrow = width < 64
     const isTerminal = e.surface === 'terminal'
     const groups = group(all, query, now)
     const counts = count(all, now)
@@ -413,7 +415,13 @@ export const register: Register = on => {
 
     const header = (
       <Box flexDirection="column">
-        <Box backgroundColor={NAVY} paddingX={1} flexDirection="row" justifyContent="space-between" alignItems="center">
+        <Box
+          backgroundColor={NAVY}
+          paddingX={1}
+          flexDirection={width < 44 ? 'column' : 'row'}
+          justifyContent="space-between"
+          alignItems={width < 44 ? 'flex-start' : 'center'}
+        >
           <Box flexDirection="row" alignItems="center" gap={1}>
             {mark(MARK_WHITE, 20, 25) ?? (
               <Text color="#FFFFFF" backgroundColor={NAVY} bold>
@@ -461,24 +469,31 @@ export const register: Register = on => {
           ? (record.activity ?? record.prompt ?? '')
           : (record.prompt ?? record.activity ?? '')
 
+      const buttons =
+        canStop || !isMe ? (
+          <Box flexDirection="row" gap={1} flexShrink={0} paddingLeft={isNarrow ? 3 : 0}>
+            {canStop && <Button key={`stop-${record.id}`} label="Stop" onPress={() => void stop($, record.id)} />}
+            {!isMe && (
+              <Button key={`resume-${record.id}`} label="Resume" onPress={() => void resume($, record, surface)} />
+            )}
+          </Box>
+        ) : null
+
       return (
         <Box key={`row-${record.id}`} flexDirection="column">
-          <Box flexDirection="row" justifyContent="space-between">
-            <Box flexDirection="row" flexShrink={1}>
-              <Text color={COLOR[shown]}>● </Text>
+          <Box flexDirection="row">
+            {/* The label never wraps; the branch and age give way first. */}
+            <Box flexShrink={0}>
               <Text bold color={COLOR[shown]}>
-                {LABEL[shown]}
+                {`● ${LABEL[shown]}`}
               </Text>
+            </Box>
+            <Box flexGrow={1} flexShrink={1}>
               <Text dimColor wrap="truncate-end">
                 {` · ${where} · ${ago(now - record.since)}${isMe ? ' · this session' : ''}`}
               </Text>
             </Box>
-            <Box flexDirection="row" gap={1} flexShrink={0}>
-              {canStop && <Button key={`stop-${record.id}`} label="Stop" onPress={() => void stop($, record.id)} />}
-              {!isMe && (
-                <Button key={`resume-${record.id}`} label="Resume" onPress={() => void resume($, record, surface)} />
-              )}
-            </Box>
+            {!isNarrow && buttons}
           </Box>
           {detail !== '' && (
             <Text dimColor wrap="truncate-end">
@@ -490,6 +505,7 @@ export const register: Register = on => {
               {`   ${prLine(record.pr)}`}
             </Text>
           )}
+          {isNarrow && buttons}
         </Box>
       )
     }
@@ -522,12 +538,14 @@ export const register: Register = on => {
     const footer = (
       <Box flexDirection="column">
         <Text dimColor>{'─'.repeat(width)}</Text>
-        <Box flexDirection="row" justifyContent="space-between">
+        <Box flexDirection={isNarrow ? 'column' : 'row'} justifyContent="space-between">
           <Box flexDirection="row" gap={1} alignItems="center">
             {mark(MARK, 18, 22)}
-            <Text dimColor>Prepared by BlueCheck Technology</Text>
+            <Text dimColor wrap="truncate-end">
+              Prepared by BlueCheck Technology
+            </Text>
           </Box>
-          <Text dimColor>{`${stamp(now)} · this computer`}</Text>
+          <Text dimColor wrap="truncate-end">{`${stamp(now)} · this computer`}</Text>
         </Box>
       </Box>
     )

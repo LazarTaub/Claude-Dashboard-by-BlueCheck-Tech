@@ -68,7 +68,7 @@ Two live Claude Code sessions, A and B, in one terminal:
 | --- | --- |
 | ![B running a long command](assets/B-running.png) | ![B idle after Stop](assets/B-after-stop.png) |
 
-`claude plugin test .` runs 18 tests: the status, grouping, search and PR parsing, plus the pane drawn on the terminal and the desktop app, the Stop message and its token check.
+`claude plugin test .` runs 19 tests: the status, grouping, search and PR parsing, plus the pane drawn on the terminal and the desktop app at full and narrow widths, the Stop message and its token check.
 
 ## Develop
 
