@@ -269,6 +269,18 @@ function openPane($: Dollar) {
   return $.ui.open({ id: PANE, title: 'Mission Control', focus: true })
 }
 
+// The button above the prompt always opens the full list, like a bare /mc,
+// and says why when the pane can't open.
+async function openFromButton($: Dollar): Promise<void> {
+  try {
+    await update($, filter, () => '')
+    const opened = await openPane($)
+    if (!opened.isPlaced) $.ui.toast(`Mission Control did not open: ${opened.reason}`)
+  } catch (error) {
+    $.ui.toast(`Mission Control did not open: ${clip(String(error), 120)}`)
+  }
+}
+
 async function resume($: Dollar, record: SessionRecord, surface: RenderSurface): Promise<void> {
   const copied = await $.ui.copy({ text: resumeCommand(record), surface })
   $.ui.toast(
@@ -444,7 +456,7 @@ export const register: Register = on => {
           label={isNarrow ? 'Open' : 'Open Mission Control'}
           hotkey="m"
           variant="primary"
-          onPress={() => void openPane($)}
+          onPress={() => void openFromButton($)}
         />
       </Box>
     )
@@ -458,7 +470,7 @@ export const register: Register = on => {
     const me = await read($, self)
     const now = (await read($, tick)) || (await $.clock.now())
     const width = Math.max(20, e.props.bodyColumns)
-    // Below this the buttons and the footer's date get lines of their own.
+    // Below this the buttons get lines of their own.
     const isNarrow = width < 64
     // The credit line and the date need about 72 columns side by side.
     const isFooterStacked = width < 76
