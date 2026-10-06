@@ -147,7 +147,7 @@ describe('mission control', () => {
     world(on)
     await $.session.start({ cwd: '/work/App', surface: 'terminal', isInteractive: true })
     const ui = await $.ui.mount({ ...PANE(40), surface: 'terminal' })
-    expect(await ui.find({ type: 'Text', text: '● running' })).toBeDefined()
+    expect(await ui.find({ type: 'Text', text: '● RUNNING' })).toBeDefined()
     expect(await ui.find({ key: 'stop-peer-0002' })).toBeDefined()
     expect(await ui.find({ type: 'Text', text: 'Prepared by BlueCheck Technology' })).toBeDefined()
   })
