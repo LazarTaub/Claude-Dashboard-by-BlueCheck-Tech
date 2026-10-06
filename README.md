@@ -8,13 +8,19 @@ A dashboard for every Claude Code session on your computer. It shows what each s
 
 ## Install
 
-In a Claude Code terminal session, run:
+![Installing Mission Control: run the command, press y, press Enter, type /mc](assets/install.gif)
 
-```
-/plugin install mission-control --marketplace LazarTaub/Claude-Dashboard-by-BlueCheck-Tech
-```
+1. In Claude Code, run:
+   ```
+   /plugin install mission-control --marketplace LazarTaub/Claude-Dashboard-by-BlueCheck-Tech
+   ```
+2. Press `y` to add the marketplace.
+3. Press Enter to install it for you.
+4. Type `/mc`.
 
-Answer `y` to add the marketplace, then choose the user scope so it loads in every session. Sessions that are already open pick it up when you restart them.
+It works right away in that session. Sessions that are already open pick it up when you restart them.
+
+Run the command in a terminal session: the desktop app's Code tab doesn't accept `/plugin`. Once installed, the dashboard loads in the desktop app too.
 
 Project names and branches come from `git`. The PR column needs the GitHub CLI (`gh`), signed in.
 
