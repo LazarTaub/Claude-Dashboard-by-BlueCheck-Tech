@@ -1,0 +1,7 @@
+{
+  "name": "mission-control",
+  "version": "0.1.0",
+  "description": "A BlueCheck dashboard of every Claude Code session on this computer: what runs, what waits on you, and a Stop button for each.",
+  "author": { "name": "BlueCheck Technology" },
+  "types": "./types/index.d.ts"
+}
