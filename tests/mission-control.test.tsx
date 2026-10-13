@@ -98,14 +98,14 @@ function world(on: On, options: { openFails?: string } = {}) {
 }
 
 /** A fake BlueCheck connector: one existing board, and a log of every call. */
-function bluecheck(on: On, options: { isConnected?: boolean; boards?: { id: string; title: string; lists: { id: string; title: string }[] }[] } = {}) {
+function bluecheck(on: On, options: { isConnected?: boolean; server?: string; boards?: { id: string; title: string; lists: { id: string; title: string }[] }[] } = {}) {
   const calls: { tool: string; args: Record<string, unknown> }[] = []
   const store = new Map<string, unknown>()
   const boards = options.boards ?? [{ id: 'b-road', title: 'BlueCheck Roadmap', lists: [{ id: 'l-p1', title: 'Phase 1' }] }]
   const answer = (value: unknown) => ({ value: { content: [{ type: 'text', text: JSON.stringify(value) }], isError: false } })
 
   on('mcp.call', ($, e) => {
-    if (options.isConnected === false || e.server !== 'claude.ai BlueCheck') {
+    if (options.isConnected === false || e.server !== (options.server ?? 'claude.ai BlueCheck')) {
       return { value: { content: [{ type: 'text', text: 'not connected' }], isError: true } }
     }
     calls.push({ tool: e.tool, args: e.args })
@@ -143,6 +143,9 @@ function bluecheck(on: On, options: { isConnected?: boolean; boards?: { id: stri
   on('prompt.submit', ($, e) => ({ text: e.text, ...(e.context ? { context: e.context } : {}) }))
 
   on('classic.Notification', () => ({}) as never)
+  on('tool.list', () => ({
+    value: options.server ? [{ name: `mcp__${options.server}__list_boards`, description: '', mcp: true }] : [],
+  }))
 
   return { calls, boards, store, tools: () => calls.map(c => c.tool) }
 }
@@ -315,6 +318,27 @@ describe('mission control', () => {
     expect(String(comment?.args.text)).toContain('2 min')
     expect(bc.calls.at(-2)).toMatchObject({ tool: 'move_card', args: { list_id: 'l-Done' } })
     expect(bc.calls.at(-1)).toMatchObject({ tool: 'update_card', args: { done: true } })
+  })
+
+  test('the connector is found by its tools, whatever it is called', async ($, on) => {
+    world(on)
+    const bc = bluecheck(on, { server: 'claude_ai_BlueCheck_Technology' })
+    await $.session.start({ cwd: '/work/App', surface: 'terminal', isInteractive: true })
+    await $.prompt.submit(typed('Fix the login redirect'))
+
+    expect(bc.tools()).toContain('create_card')
+  })
+
+  test('a failed update says so once, and /mc-boards says why', async ($, on) => {
+    const w = world(on)
+    bluecheck(on, { isConnected: false })
+    await $.session.start({ cwd: '/work/App', surface: 'terminal', isInteractive: true })
+    await $.prompt.submit(typed('Fix the login redirect'))
+    await $.prompt.submit(typed('And the logout'))
+
+    expect(w.toasts.filter(t => t.includes('BlueCheck Boards could not update'))).toHaveLength(1)
+    const told = await $.command.run({ command: 'mc-boards', args: '', origin: { kind: 'composer' }, presentation: { isFullscreen: true, columns: 160 } } as never)
+    expect(told.text).toContain('Tried: claude.ai BlueCheck, BlueCheck')
   })
 
   test('typing /mc makes no card', async ($, on) => {

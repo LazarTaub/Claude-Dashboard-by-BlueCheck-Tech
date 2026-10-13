@@ -1,6 +1,6 @@
 import { describe, expect, test } from 'claude-code/testing'
 
-import { columnAfterTurn, columnsOf, contextFor, idOf, payload, plainWords, titleFrom, turnComment } from '../hooks/boards'
+import { columnAfterTurn, columnsOf, contextFor, idOf, isPersonsRequest, payload, plainWords, serverNames, titleFrom, turnComment } from '../hooks/boards'
 
 describe('board answers', () => {
   test('an id is read from the answer however the tool wraps it', () => {
@@ -22,6 +22,22 @@ describe('board answers', () => {
       { id: 'l-3', title: 'DONE' },
     ])
     expect(found).toEqual({ 'To do': 'l-1', Done: 'l-3' })
+  })
+})
+
+describe('finding the connector', () => {
+  test('a BlueCheck server among the tools is tried first, then the usual names', () => {
+    const tools = [{ name: 'mcp__Other__list_boards' }, { name: 'mcp__claude_ai_BlueCheck__list_boards' }, { name: 'Bash' }]
+    expect(serverNames(tools)).toEqual(['claude_ai_BlueCheck', 'Other', 'claude.ai BlueCheck', 'BlueCheck'])
+    expect(serverNames([])).toEqual(['claude.ai BlueCheck', 'BlueCheck'])
+  })
+
+  test('only messages from peers and plugins are not requests', () => {
+    expect(isPersonsRequest({ kind: 'composer' })).toBe(true)
+    expect(isPersonsRequest({ kind: 'sdk' })).toBe(true)
+    expect(isPersonsRequest({ kind: 'unclassified' })).toBe(true)
+    expect(isPersonsRequest({ kind: 'peer' })).toBe(false)
+    expect(isPersonsRequest({ kind: 'plugin' })).toBe(false)
   })
 })
 
