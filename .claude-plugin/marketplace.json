@@ -1,12 +1,12 @@
 {
-  "name": "bluecheck",
+  "name": "bluecheck-tech",
   "description": "Claude Code mods from BlueCheck Technology.",
   "owner": {
     "name": "BlueCheck Technology"
   },
   "plugins": [
     {
-      "name": "mission-control",
+      "name": "bluecheck-mission-control",
       "source": "./",
       "description": "A dashboard of every Claude Code session on this computer, with a Stop button for each."
     }

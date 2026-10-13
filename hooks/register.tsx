@@ -71,11 +71,11 @@ type Dollar = EngineInterface
 const PANE = 'mission-control'
 const ROWS_PER_PROJECT = 6
 
-const sessions = atom({ plugin: 'mission-control', key: 'sessions' } as const, [])
-const filter = atom({ plugin: 'mission-control', key: 'filter' } as const, '')
-const self = atom({ plugin: 'mission-control', key: 'self' } as const, null)
-const turn = atom({ plugin: 'mission-control', key: 'turnId' } as const, null)
-const tick = atom({ plugin: 'mission-control', key: 'now' } as const, 0)
+const sessions = atom({ plugin: 'bluecheck-mission-control', key: 'sessions' } as const, [])
+const filter = atom({ plugin: 'bluecheck-mission-control', key: 'filter' } as const, '')
+const self = atom({ plugin: 'bluecheck-mission-control', key: 'self' } as const, null)
+const turn = atom({ plugin: 'bluecheck-mission-control', key: 'turnId' } as const, null)
+const tick = atom({ plugin: 'bluecheck-mission-control', key: 'now' } as const, 0)
 
 const COLOR: Record<Shown, string> = {
   waiting: 'warning',

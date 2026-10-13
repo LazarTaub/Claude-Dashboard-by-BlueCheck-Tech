@@ -151,7 +151,7 @@ const typed = (text: string) => ({ text, origin: { kind: 'composer' }, wait: fal
 
 const PANE = (bodyColumns: number) =>
   ({
-    plugin: 'mission-control',
+    plugin: 'bluecheck-mission-control',
     component: 'Pane',
     requestId: 'mission-control',
     props: {
@@ -210,7 +210,7 @@ describe('mission control', () => {
 
     for (const surface of ['terminal', 'desktop'] as const) {
       const ui = await $.ui.mount({
-        plugin: 'mission-control',
+        plugin: 'bluecheck-mission-control',
         surface,
         component: 'AbovePrompt',
         props: { hasSurvey: false, isWorking: false, maxRows: 6, bodyColumns: 120, scroll: { offset: 0, bodyRows: 6 }, view: {} },
@@ -227,7 +227,7 @@ describe('mission control', () => {
     world(on)
     await $.session.start({ cwd: '/work/App', surface: 'terminal', isInteractive: true })
     await $.command.run({ command: 'mc', args: 'breev', origin: { kind: 'composer' }, presentation: { isFullscreen: true, columns: 160 } } as never)
-    const row = await $.ui.mount({ plugin: 'mission-control', surface: 'terminal', component: 'AbovePrompt', props: { hasSurvey: false, isWorking: false, maxRows: 6, bodyColumns: 120, scroll: { offset: 0, bodyRows: 6 }, view: {} } })
+    const row = await $.ui.mount({ plugin: 'bluecheck-mission-control', surface: 'terminal', component: 'AbovePrompt', props: { hasSurvey: false, isWorking: false, maxRows: 6, bodyColumns: 120, scroll: { offset: 0, bodyRows: 6 }, view: {} } })
     await row.press({ key: 'open' })
     await row.unmount()
     const ui = await $.ui.mount({ ...PANE(100), surface: 'terminal' })
@@ -238,7 +238,7 @@ describe('mission control', () => {
   test('the button says why when the dashboard cannot open', async ($, on) => {
     const w = world(on, { openFails: 'no room for a dock' })
     await $.session.start({ cwd: '/work/App', surface: 'terminal', isInteractive: true })
-    const row = await $.ui.mount({ plugin: 'mission-control', surface: 'terminal', component: 'AbovePrompt', props: { hasSurvey: false, isWorking: false, maxRows: 6, bodyColumns: 120, scroll: { offset: 0, bodyRows: 6 }, view: {} } })
+    const row = await $.ui.mount({ plugin: 'bluecheck-mission-control', surface: 'terminal', component: 'AbovePrompt', props: { hasSurvey: false, isWorking: false, maxRows: 6, bodyColumns: 120, scroll: { offset: 0, bodyRows: 6 }, view: {} } })
     await row.press({ key: 'open' })
     expect(w.toasts.some(text => text.includes('no room for a dock'))).toBe(true)
   })

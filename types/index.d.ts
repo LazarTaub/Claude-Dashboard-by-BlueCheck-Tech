@@ -41,7 +41,7 @@ export type SessionRecord = {
 
 declare module 'claude-code' {
   interface PluginState {
-    'mission-control': {
+    'bluecheck-mission-control': {
       sessions: SessionRecord[]
       filter: string
       self: SessionRecord | null

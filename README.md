@@ -12,7 +12,7 @@ A dashboard for every Claude Code session on your computer. It shows what each s
 
 1. In Claude Code, run:
    ```
-   /plugin install mission-control --marketplace LazarTaub/Claude-Dashboard-by-BlueCheck-Tech
+   /plugin install bluecheck-mission-control --marketplace LazarTaub/Claude-Dashboard-by-BlueCheck-Tech
    ```
 2. Press `y` to add the marketplace.
 3. Press Enter to install it for you.
@@ -35,7 +35,7 @@ A Mission Control row sits just above the prompt with the live counts. Click **O
 - Tab moves between buttons and Enter presses one.
 - Stop ends that session's current turn.
 - Resume copies the command that reopens that session in a terminal.
-- Every session's status line shows the counts, for example `mission-control: 1 waiting · 2 running · 3 idle`.
+- Every session's status line shows the counts, for example `bluecheck-mission-control: 1 waiting · 2 running · 3 idle`.
 
 Sessions are grouped by project. Worktrees of one repository share a group. Projects with a session waiting on you come first.
 
