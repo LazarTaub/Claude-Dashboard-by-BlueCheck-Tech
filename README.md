@@ -51,9 +51,21 @@ Sessions are grouped by project. Worktrees of one repository share a group. Proj
 
 If the GitHub CLI (`gh`) is installed and signed in, each row shows its branch's pull request: the CI result, the latest `Confidence: N/5` from the Claude review comment, and the number of open review threads. It checks after every turn and every 2 minutes.
 
+## BlueCheck Boards
+
+If your BlueCheck connector is connected, each session's work also becomes a card on BlueCheck, with nothing to type:
+
+- **A board per project.** The first request in a session finds the board named like the project, or makes it. Any missing columns are added: To do, In progress, Waiting on you, Review, Done.
+- **A card per session.** It's titled from your request and starts in In progress.
+- **It moves on its own.** Waiting on you at a permission prompt or a question, back to In progress when work goes on. When a turn ends, it goes to Review if the branch has an open pull request, otherwise to Done (marked done).
+- **A note after every turn.** A short comment says what was done, how long it took, and the pull request with its CI.
+- **Claude uses the board too.** Each session is told its card and board, so Claude keeps a checklist for long jobs, adds To do cards for follow-ups it finds, and comments on related cards on other boards, like the BlueCheck Roadmap.
+
+`/mc-boards` shows this session's card. `/mc-boards off` turns the updates off, and `/mc-boards on` turns them back on.
+
 ## How it works
 
-Each session writes a small JSON file to `~/.claude/mission-control/sessions/` (under `CLAUDE_CONFIG_DIR` if you set it). It writes when a turn starts, when a tool runs, when a turn ends, and every 30 seconds. Each session reads the folder every 4 seconds. The file holds the project, branch, status, current tool and the first 140 characters of your last prompt. Nothing leaves your computer except the `gh` calls to GitHub.
+Each session writes a small JSON file to `~/.claude/mission-control/sessions/` (under `CLAUDE_CONFIG_DIR` if you set it). It writes when a turn starts, when a tool runs, when a turn ends, and every 30 seconds. Each session reads the folder every 4 seconds. The file holds the project, branch, status, current tool and the first 140 characters of your last prompt. Nothing leaves your computer except the `gh` calls to GitHub and, with BlueCheck Boards, the calls to your BlueCheck connector.
 
 Stop sends the other session a short message carrying a random token from that session's file. The other session's copy of Mission Control checks the token, removes the message before Claude reads it, and ends the turn. A message without the right token goes through untouched.
 
@@ -64,6 +76,7 @@ Stop sends the other session a short message carrying a random token from that s
 - Stop ends the turn, but a shell command that was running keeps going in the background. The stopped session lists it as "1 shell", and you can end it there. Esc in that session kills the command instead.
 - Resume copies a command. It can't bring another terminal window to the front.
 - After you approve a permission prompt, a Bash command in a terminal switches back to "running" right away. Other tools stay at "waiting on you" until they finish.
+- BlueCheck Boards needs the BlueCheck connector in the session. The first request in a session can take a few seconds longer while the board and card are made.
 - Tested on Linux with Claude Code 2.1.292. macOS and Windows should work but haven't been tested yet.
 
 ## Tested
