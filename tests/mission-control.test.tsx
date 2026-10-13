@@ -97,6 +97,58 @@ function world(on: On, options: { openFails?: string } = {}) {
   return { files, sent, opened, aborted, clock, own, toasts }
 }
 
+/** A fake BlueCheck connector: one existing board, and a log of every call. */
+function bluecheck(on: On, options: { isConnected?: boolean; boards?: { id: string; title: string; lists: { id: string; title: string }[] }[] } = {}) {
+  const calls: { tool: string; args: Record<string, unknown> }[] = []
+  const store = new Map<string, unknown>()
+  const boards = options.boards ?? [{ id: 'b-road', title: 'BlueCheck Roadmap', lists: [{ id: 'l-p1', title: 'Phase 1' }] }]
+  const answer = (value: unknown) => ({ value: { content: [{ type: 'text', text: JSON.stringify(value) }], isError: false } })
+
+  on('mcp.call', ($, e) => {
+    if (options.isConnected === false || e.server !== 'claude.ai BlueCheck') {
+      return { value: { content: [{ type: 'text', text: 'not connected' }], isError: true } }
+    }
+    calls.push({ tool: e.tool, args: e.args })
+    const board = boards.find(b => b.id === e.args.board_id)
+    switch (e.tool) {
+      case 'list_boards':
+        return answer({ boards: boards.map(b => ({ id: b.id, title: b.title })) })
+      case 'create_board': {
+        const made = { id: `b-${boards.length + 1}`, title: String(e.args.title), lists: [] }
+        boards.push(made)
+
+        return answer({ board: { id: made.id, title: made.title } })
+      }
+      case 'get_board':
+        return answer({ board: { id: board?.id }, lists: board?.lists ?? [] })
+      case 'create_list': {
+        const list = { id: `l-${String(e.args.title)}`, title: String(e.args.title) }
+        board?.lists.push(list)
+
+        return answer({ list })
+      }
+      case 'create_card':
+        return answer({ card: { id: 'c-1', title: e.args.title } })
+      default:
+        return answer({ ok: true })
+    }
+  })
+  on('model.complete', () => ({ value: { isAnswered: true, text: 'Add invoice export', usage: {} } }) as never)
+  on('store.get', ($, e) => ({ value: store.get(e.key) }))
+  on('store.set', ($, e) => {
+    store.set(e.key, e.value)
+
+    return { value: undefined }
+  })
+  on('prompt.submit', ($, e) => ({ text: e.text, ...(e.context ? { context: e.context } : {}) }))
+
+  on('classic.Notification', () => ({}) as never)
+
+  return { calls, boards, store, tools: () => calls.map(c => c.tool) }
+}
+
+const typed = (text: string) => ({ text, origin: { kind: 'composer' }, wait: false }) as never
+
 const PANE = (bodyColumns: number) =>
   ({
     plugin: 'mission-control',
@@ -214,6 +266,75 @@ describe('mission control', () => {
     const right = await $.session.receive({ origin: { kind: 'peer' }, text: `[mission-control] stop ${token}` })
     expect(right).toHaveProperty('consumed')
     expect(w.aborted).toEqual(['t-9'])
+  })
+
+  test('the first request makes the board, its columns and the card, and tells the model where it is', async ($, on) => {
+    world(on)
+    const bc = bluecheck(on)
+    await $.session.start({ cwd: '/work/App', surface: 'terminal', isInteractive: true })
+
+    const sent = await $.prompt.submit(typed('Add an invoice export to the billing page'))
+
+    expect(bc.calls.find(c => c.tool === 'create_board')?.args.title).toBe('App')
+    expect(bc.boards.find(b => b.title === 'App')?.lists.map(l => l.title)).toEqual(['To do', 'In progress', 'Waiting on you', 'Review', 'Done'])
+    const card = bc.calls.find(c => c.tool === 'create_card')
+    expect(card?.args).toMatchObject({ title: 'Add invoice export', list_id: 'l-In progress' })
+    expect(sent.context?.join('\n')).toContain('card_id c-1')
+
+    // A second request reuses the card.
+    await $.prompt.submit(typed('Also add a CSV option'))
+    expect(bc.tools().filter(t => t === 'create_card')).toHaveLength(1)
+  })
+
+  test('an existing board named like the project is used, and only missing columns are added', async ($, on) => {
+    world(on)
+    const bc = bluecheck(on, { boards: [{ id: 'b-app', title: 'app', lists: [{ id: 'l-todo', title: 'To Do' }, { id: 'l-done', title: 'Done' }] }] })
+    await $.session.start({ cwd: '/work/App', surface: 'terminal', isInteractive: true })
+    await $.prompt.submit(typed('Fix the login redirect'))
+
+    expect(bc.tools()).not.toContain('create_board')
+    expect(bc.calls.filter(c => c.tool === 'create_list').map(c => c.args.title)).toEqual(['In progress', 'Waiting on you', 'Review'])
+  })
+
+  test('the card waits on you at a permission prompt, then gets a summary and goes to Done', async ($, on) => {
+    const w = world(on)
+    const bc = bluecheck(on)
+    await $.session.start({ cwd: '/work/App', surface: 'terminal', isInteractive: true })
+    await $.prompt.submit(typed('Add an invoice export'))
+    await $.turn.start({ text: 'Add an invoice export', turnId: 't-1' })
+
+    await $.classic.Notification({ message: 'Claude needs your permission', notification_type: 'permission_prompt' } as never)
+    await w.clock.advance(10)
+    expect(bc.calls.find(c => c.tool === 'move_card' && c.args.list_id === 'l-Waiting on you')).toBeDefined()
+
+    await $.turn.complete({ answer: 'I added the export button and a test.', durationMs: 120_000, isAborted: false, turnId: 't-1', reason: 'answer' })
+    await w.clock.advance(1_000)
+    for (let i = 0; i < 20 && !bc.tools().includes('update_card'); i++) await w.clock.advance(10)
+
+    const comment = bc.calls.find(c => c.tool === 'comment_on_card')
+    expect(String(comment?.args.text)).toContain('2 min')
+    expect(bc.calls.at(-2)).toMatchObject({ tool: 'move_card', args: { list_id: 'l-Done' } })
+    expect(bc.calls.at(-1)).toMatchObject({ tool: 'update_card', args: { done: true } })
+  })
+
+  test('typing /mc makes no card', async ($, on) => {
+    world(on)
+    const bc = bluecheck(on)
+    await $.session.start({ cwd: '/work/App', surface: 'terminal', isInteractive: true })
+    await $.prompt.submit(typed('/mc breev'))
+    expect(bc.tools()).not.toContain('create_card')
+  })
+
+  test('without the connector, or switched off, a request goes through untouched', async ($, on) => {
+    world(on)
+    const bc = bluecheck(on, { isConnected: false })
+    await $.session.start({ cwd: '/work/App', surface: 'terminal', isInteractive: true })
+    const sent = await $.prompt.submit(typed('Fix the login redirect'))
+    expect(sent.context).toBeUndefined()
+    expect(bc.calls).toHaveLength(0)
+
+    await $.command.run({ command: 'mc-boards', args: 'off', origin: { kind: 'composer' }, presentation: { isFullscreen: true, columns: 160 } } as never)
+    expect(bc.store.get('boards')).toBe('off')
   })
 
   test('/mc with words filters the pane', async ($, on) => {

@@ -13,6 +13,25 @@ import { atom, read, update } from 'claude-code'
 import type { EngineInterface, Register, RenderSurface } from 'claude-code'
 
 import type { SessionRecord } from '../types'
+import {
+  COLUMNS,
+  LINK_KEY,
+  SERVERS,
+  SWITCH_KEY,
+  boardFor,
+  cardDescription,
+  columnAfterTurn,
+  columnsOf,
+  contextFor,
+  idOf,
+  named,
+  payload,
+  summaryPrompt,
+  titleFrom,
+  titlePrompt,
+  turnComment,
+} from './boards'
+import type { CardLink, Column } from './boards'
 import { MARK, MARK_WHITE, NAVY, ROYAL, SKY } from './brand'
 import {
   HEARTBEAT_MS,
@@ -113,9 +132,148 @@ async function gitInfo($: Dollar, root: string): Promise<{ project: string; bran
   }
 }
 
+// BlueCheck Boards. The calls live here: $ is only handed to functions in this file.
+let card: CardLink | undefined
+let boardServer: string | null | undefined
+let boardMissedAt = 0
+let boardQueue: Promise<unknown> = Promise.resolve()
+
+function currentCard(): CardLink | undefined {
+  return card
+}
+
+/** Runs board work one call at a time, so a move never overtakes the card it moves. */
+function enqueueBoard<T>(work: () => Promise<T>): Promise<T | undefined> {
+  const run = boardQueue.then(work, work)
+  boardQueue = run.catch(() => undefined)
+
+  return run.catch(() => undefined)
+}
+
+async function isBoardsOn($: Dollar): Promise<boolean> {
+  return (await $.store.get(SWITCH_KEY).catch(() => undefined)) !== 'off'
+}
+
+/**
+ * The connector's name in this session, found once; null when it is not
+ * connected. Connectors can still be connecting at the first prompt, so a
+ * miss is asked again after a minute.
+ */
+async function serverOf($: Dollar): Promise<string | null> {
+  const now = await $.clock.now()
+  if (boardServer === null && now - boardMissedAt < 60_000) return null
+  if (boardServer) return boardServer
+  for (const name of SERVERS) {
+    const answer = await $.mcp.call(name, 'list_boards', {}).catch(() => undefined)
+    if (answer && !answer.isError) return (boardServer = name)
+  }
+  boardMissedAt = now
+
+  return (boardServer = null)
+}
+
+async function bluecheck($: Dollar, tool: string, args: Record<string, unknown>): Promise<unknown> {
+  const name = await serverOf($)
+  if (name === null) throw new Error('the BlueCheck connector is not connected')
+
+  return payload(await $.mcp.call(name, tool, args))
+}
+
+async function haiku($: Dollar, prompt: string, maxTokens: number): Promise<string | undefined> {
+  const answer = await $.model.complete({ model: 'haiku', prompt, maxTokens }).catch(() => undefined)
+
+  return answer?.isAnswered ? answer.text : undefined
+}
+
+/** The session's card: found again after a reload or resume, or made now, with its board and columns. */
+async function ensureCard(
+  $: Dollar,
+  session: { id: string; project: string; branch?: string; prompt: string },
+): Promise<CardLink | undefined> {
+  if (card?.sessionId === session.id) return card
+
+  const stored = (await $.store.get(LINK_KEY + session.id).catch(() => undefined)) as CardLink | undefined
+  if (stored?.cardId) return (card = stored)
+
+  const name = await serverOf($)
+  if (name === null) return undefined
+
+  const boards = named(await bluecheck($, 'list_boards', {}), 'boards')
+  let board = boardFor(boards, session.project)
+  if (!board) {
+    const made = await bluecheck($, 'create_board', {
+      title: session.project,
+      description: `Claude Code work on ${session.project}. Mission Control keeps the cards up to date.`,
+    })
+    const id = idOf(made, 'board')
+    if (!id) throw new Error('create_board answered with no id')
+    board = { id, title: session.project }
+  }
+
+  const lists = columnsOf(named(await bluecheck($, 'get_board', { board_id: board.id }), 'lists'))
+  for (const column of COLUMNS) {
+    if (lists[column]) continue
+    const id = idOf(await bluecheck($, 'create_list', { board_id: board.id, title: column }), 'list')
+    if (!id) throw new Error('create_list answered with no id')
+    lists[column] = id
+  }
+
+  const title = titleFrom(await haiku($, titlePrompt(session.prompt), 40), session.prompt)
+  const made = await bluecheck($, 'create_card', {
+    board_id: board.id,
+    list_id: lists['In progress'],
+    title,
+    description: cardDescription(session.prompt, session.id, session.branch),
+    labels: ['Claude Code:blue'],
+  })
+  const cardId = idOf(made, 'card')
+  if (!cardId) throw new Error('create_card answered with no id')
+
+  card = {
+    sessionId: session.id,
+    server: name,
+    boardId: board.id,
+    boardTitle: board.title,
+    cardId,
+    title,
+    lists: lists as Record<Column, string>,
+    column: 'In progress',
+  }
+  await $.store.set(LINK_KEY + session.id, card)
+
+  return card
+}
+
+/** Moves the card to a column; a card in Done is marked done, and unmarked when it leaves. */
+async function moveCard($: Dollar, column: Column): Promise<void> {
+  if (!card || card.column === column || !(await isBoardsOn($))) return
+  const from = card.column
+  await bluecheck($, 'move_card', { card_id: card.cardId, list_id: card.lists[column], position: 'top' })
+  if (column === 'Done' || from === 'Done') {
+    await bluecheck($, 'update_card', { card_id: card.cardId, done: column === 'Done' })
+  }
+  card = { ...card, column }
+  await $.store.set(LINK_KEY + card.sessionId, card)
+}
+
+/** Ends a turn on the board: a comment on what was done, then the card's next column. */
+async function finishTurn(
+  $: Dollar,
+  turn: { answer: string; durationMs: number; isAborted: boolean; pr?: { url: string; state: string; ci: string } },
+): Promise<void> {
+  if (!card || !(await isBoardsOn($))) return
+  const summary = turn.isAborted ? '' : ((await haiku($, summaryPrompt(turn.answer), 300)) ?? clip(turn.answer, 1500))
+  await bluecheck($, 'comment_on_card', {
+    card_id: card.cardId,
+    text: turnComment({ ...turn, summary, ...(turn.pr ? { pr: turn.pr } : {}) }),
+  })
+  await moveCard($, columnAfterTurn({ isAborted: turn.isAborted, hasOpenPr: turn.pr?.state === 'OPEN' }))
+}
+
 /** Writes this session's record to state and to its file. */
 async function save($: Dollar, patch: Partial<SessionRecord>): Promise<void> {
   const now = await $.clock.now()
+  const before = (await read($, self))?.status
   const record = await update($, self, current => {
     if (current === null) return null
     const since = patch.status !== undefined && patch.status !== current.status ? now : current.since
@@ -123,6 +281,27 @@ async function save($: Dollar, patch: Partial<SessionRecord>): Promise<void> {
     return plain({ ...current, ...patch, since, updatedAt: now })
   })
   if (record) await $.fs.write(await fileFor($, record.id), JSON.stringify(record))
+
+  // The card follows the session: waiting on the person, or back at work.
+  if (record && record.status !== before && currentCard()) {
+    if (record.status === 'waiting') void enqueueBoard(() => moveCard($, 'Waiting on you'))
+    if (record.status === 'running') void enqueueBoard(() => moveCard($, 'In progress'))
+  }
+}
+
+/** Prompts the person typed or sent, as opposed to messages from peers and plugins. */
+const PERSON = new Set(['composer', 'bridge', 'sdk', 'scheduled-trigger'])
+
+/** Gives up waiting on the board after a while, so a slow connector never holds a prompt. */
+async function within<T>($: Dollar, ms: number, work: Promise<T>): Promise<T | undefined> {
+  let timer: { cancel: () => void } | undefined
+  const late = new Promise<undefined>(done => {
+    timer = $.clock.after(ms, () => done(undefined))
+  })
+  const result = await Promise.race([work, late])
+  timer?.cancel()
+
+  return result
 }
 
 /** Starts this session's record, or picks it up again after a reload. */
@@ -308,6 +487,11 @@ export const register: Register = on => {
       description: 'Mission Control: every Claude session on this computer',
       argumentHint: '[search]',
     })
+    await $.command.register({
+      name: 'mc-boards',
+      description: 'BlueCheck Boards: show this session\'s card, or turn the board updates on or off',
+      argumentHint: '[on|off]',
+    })
     await begin($)
     $.clock.every(HEARTBEAT_MS, () => void heartbeat($))
     $.clock.every(SCAN_MS, () => void scan($))
@@ -326,6 +510,38 @@ export const register: Register = on => {
     return { text: opened.isPlaced ? 'Mission Control is open.' : `Mission Control did not open: ${opened.reason}` }
   })
 
+  on('command.run', { command: 'mc-boards' }, async ($, e) => {
+    const word = e.args.trim().toLowerCase()
+    if (word === 'on' || word === 'off') await $.store.set(SWITCH_KEY, word)
+    const isOn = await isBoardsOn($)
+    const linked = currentCard()
+    const where = linked ? ` This session's card: "${linked.title}" on the board "${linked.boardTitle}", in ${linked.column}.` : ''
+
+    return { text: `BlueCheck Boards is ${isOn ? 'on' : 'off'}.${where}` }
+  })
+
+  // The first request makes the session's card; every request puts it back
+  // in progress and tells the model where the card is.
+  on('prompt.submit', async ($, e, next) => {
+    // Opening the dashboard or asking about the card is not work for the board.
+    const isOwnCommand = /^\/mc(-boards)?(\s|$)/.test(e.text.trim())
+    if (!PERSON.has(e.origin.kind) || !e.text.trim() || isOwnCommand || !(await isBoardsOn($))) return next(e)
+    const me = await read($, self)
+    if (me === null) return next(e)
+
+    const linked = await within(
+      $,
+      10_000,
+      enqueueBoard(() =>
+        ensureCard($, { id: me.id, project: me.project, branch: me.branch, prompt: e.text }),
+      ),
+    )
+    if (!linked) return next(e)
+    void enqueueBoard(() => moveCard($, 'In progress'))
+
+    return next({ ...e, context: [...(e.context ?? []), contextFor(linked)] })
+  }).catch(($, e, next) => next(e))
+
   on('turn.start', async ($, e, next) => {
     await update($, turn, () => e.turnId)
     await save($, {
@@ -343,7 +559,15 @@ export const register: Register = on => {
 
     await update($, turn, () => null)
     await save($, { status: 'idle', activity: undefined })
-    $.clock.after(500, () => void refreshPr($, true))
+    const ended = { answer: e.answer, durationMs: e.durationMs, isAborted: e.isAborted }
+    // The PR is read first, so the card goes to Review when one is open.
+    $.clock.after(500, () => {
+      void refreshPr($, true).then(async () => {
+        if (!currentCard()) return
+        const pr = (await read($, self))?.pr
+        await enqueueBoard(() => finishTurn($, { ...ended, ...(pr ? { pr } : {}) }))
+      })
+    })
 
     return next(e)
   })
