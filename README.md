@@ -61,7 +61,7 @@ If your BlueCheck connector is connected, each session's work also becomes a car
 - **A note after every turn.** A short comment says what was done, how long it took, and the pull request with its CI.
 - **Claude uses the board too.** Each session is told its card and board, so Claude keeps a checklist for long jobs, adds To do cards for follow-ups it finds, and comments on related cards on other boards, like the BlueCheck Roadmap.
 
-`/mc-boards` shows this session's card. `/mc-boards off` turns the updates off, and `/mc-boards on` turns them back on.
+`/mc-boards` shows this session's card, the connector it uses, and the last problem if an update failed. `/mc-boards off` turns the updates off, and `/mc-boards on` turns them back on.
 
 ## How it works
 

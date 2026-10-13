@@ -16,7 +16,6 @@ import type { SessionRecord } from '../types'
 import {
   COLUMNS,
   LINK_KEY,
-  SERVERS,
   SWITCH_KEY,
   boardFor,
   cardDescription,
@@ -24,8 +23,10 @@ import {
   columnsOf,
   contextFor,
   idOf,
+  isPersonsRequest,
   named,
   payload,
+  serverNames,
   summaryPrompt,
   titleFrom,
   titlePrompt,
@@ -135,6 +136,9 @@ async function gitInfo($: Dollar, root: string): Promise<{ project: string; bran
 // BlueCheck Boards. The calls live here: $ is only handed to functions in this file.
 let card: CardLink | undefined
 let boardServer: string | null | undefined
+/** Why the last board update failed, for /mc-boards; shown once as a toast. */
+let boardProblem: string | undefined
+let hasToldProblem = false
 let boardMissedAt = 0
 let boardQueue: Promise<unknown> = Promise.resolve()
 
@@ -163,11 +167,13 @@ async function serverOf($: Dollar): Promise<string | null> {
   const now = await $.clock.now()
   if (boardServer === null && now - boardMissedAt < 60_000) return null
   if (boardServer) return boardServer
-  for (const name of SERVERS) {
+  const names = serverNames(await $.tool.list().catch(() => []))
+  for (const name of names) {
     const answer = await $.mcp.call(name, 'list_boards', {}).catch(() => undefined)
     if (answer && !answer.isError) return (boardServer = name)
   }
   boardMissedAt = now
+  boardProblem = `No BlueCheck connector answered in this session. Tried: ${names.join(', ')}.`
 
   return (boardServer = null)
 }
@@ -289,8 +295,13 @@ async function save($: Dollar, patch: Partial<SessionRecord>): Promise<void> {
   }
 }
 
-/** Prompts the person typed or sent, as opposed to messages from peers and plugins. */
-const PERSON = new Set(['composer', 'bridge', 'sdk', 'scheduled-trigger'])
+/** Records why the board could not be updated, and says so once per session. */
+function boardFailed($: Dollar, problem: string): void {
+  boardProblem = problem
+  if (hasToldProblem) return
+  hasToldProblem = true
+  $.ui.toast(`BlueCheck Boards could not update: ${clip(problem, 160)} Type /mc-boards for details.`)
+}
 
 /** Gives up waiting on the board after a while, so a slow connector never holds a prompt. */
 async function within<T>($: Dollar, ms: number, work: Promise<T>): Promise<T | undefined> {
@@ -515,9 +526,13 @@ export const register: Register = on => {
     if (word === 'on' || word === 'off') await $.store.set(SWITCH_KEY, word)
     const isOn = await isBoardsOn($)
     const linked = currentCard()
-    const where = linked ? ` This session's card: "${linked.title}" on the board "${linked.boardTitle}", in ${linked.column}.` : ''
+    const where = linked
+      ? ` This session's card: "${linked.title}" on the board "${linked.boardTitle}", in ${linked.column}.`
+      : ' This session has no card yet.'
+    const via = boardServer ? ` Connector: ${boardServer}.` : ''
+    const problem = boardProblem ? ` Last problem: ${boardProblem}` : ''
 
-    return { text: `BlueCheck Boards is ${isOn ? 'on' : 'off'}.${where}` }
+    return { text: `BlueCheck Boards is ${isOn ? 'on' : 'off'}.${where}${via}${problem}` }
   })
 
   // The first request makes the session's card; every request puts it back
@@ -525,16 +540,26 @@ export const register: Register = on => {
   on('prompt.submit', async ($, e, next) => {
     // Opening the dashboard or asking about the card is not work for the board.
     const isOwnCommand = /^\/mc(-boards)?(\s|$)/.test(e.text.trim())
-    if (!PERSON.has(e.origin.kind) || !e.text.trim() || isOwnCommand || !(await isBoardsOn($))) return next(e)
+    if (!isPersonsRequest(e.origin) || !e.text.trim() || isOwnCommand || !(await isBoardsOn($))) return next(e)
     const me = await read($, self)
     if (me === null) return next(e)
 
     const linked = await within(
       $,
       10_000,
-      enqueueBoard(() =>
-        ensureCard($, { id: me.id, project: me.project, branch: me.branch, prompt: e.text }),
-      ),
+      enqueueBoard(async () => {
+        try {
+          const made = await ensureCard($, { id: me.id, project: me.project, branch: me.branch, prompt: e.text })
+          if (made) boardProblem = undefined
+          else boardFailed($, boardProblem ?? 'the BlueCheck connector is not connected.')
+
+          return made
+        } catch (error) {
+          boardFailed($, error instanceof Error ? error.message : String(error))
+
+          return undefined
+        }
+      }),
     )
     if (!linked) return next(e)
     void enqueueBoard(() => moveCard($, 'In progress'))

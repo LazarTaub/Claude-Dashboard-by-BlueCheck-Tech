@@ -21,8 +21,29 @@ export type CardLink = {
   column: Column
 }
 
-/** How the BlueCheck connector is named: from claude.ai, or added by hand. */
+/** How the BlueCheck connector is usually named: from claude.ai, or added by hand. */
 export const SERVERS = ['claude.ai BlueCheck', 'BlueCheck'] as const
+
+/**
+ * The servers that look like BlueCheck among the session's tools, found by
+ * their `list_boards` tool (`mcp__claude_ai_BlueCheck__list_boards` gives
+ * `claude_ai_BlueCheck`), then the usual names. Each name is tried once.
+ */
+export function serverNames(tools: readonly { name: string }[]): string[] {
+  const found = tools
+    .map(tool => /^mcp__(.+)__list_boards$/.exec(tool.name)?.[1])
+    .filter((name): name is string => name !== undefined)
+    .sort((a, b) => Number(/bluecheck/i.test(b)) - Number(/bluecheck/i.test(a)))
+
+  return [...new Set([...found, ...SERVERS])]
+}
+
+/** Messages that are not the person's own request: they make no card. */
+const NOT_A_REQUEST = new Set(['peer', 'peer-send-message', 'task-notification', 'projects-relay', 'channel', 'plugin'])
+
+export function isPersonsRequest(origin: { kind: string } | undefined): boolean {
+  return !NOT_A_REQUEST.has(origin?.kind ?? '')
+}
 export const SWITCH_KEY = 'boards'
 export const LINK_KEY = 'card:'
 
